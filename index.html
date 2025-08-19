@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>แอปถอดรายการจากรูปภาพ</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Sarabun', sans-serif;
+        }
+        .file-upload-container {
+            border: 2px dashed #cbd5e1;
+            transition: all 0.3s ease;
+        }
+        .file-upload-container.drag-over {
+            border-color: #3b82f6;
+            background-color: #eff6ff;
+        }
+        #dataTable th, #dataTable td {
+            white-space: nowrap;
+        }
+        #dataTable td[contenteditable="true"] {
+            background-color: #fef9c3;
+            outline: 2px solid #facc15;
+        }
+        .modal-backdrop {
+            background-color: rgba(0, 0, 0, 0.5);
+        }
+        @media print {
+            body * {
+                visibility: hidden;
+            }
+            #print-section, #print-section * {
+                visibility: visible;
+            }
+            #print-section {
+                position: absolute;
+                left: 0;
+                top: 0;
+                width: 100%;
+            }
+            #dataTable th, #dataTable td {
+                font-size: 10px;
+            }
+        }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-800">
+
+    <div class="container mx-auto p-4 md:p-8 max-w-7xl">
+        <header class="text-center mb-8">
+            <h1 class="text-3xl md:text-4xl font-bold text-gray-900">แอปพลิเคชันถอดรายการจากรูปภาพ</h1>
+            <p class="text-gray-600 mt-2">อัปโหลดรูปภาพ, เลือกโปรไฟล์โรงงาน, แล้วให้ AI ช่วยดึงข้อมูลลงตาราง</p>
+        </header>
+
+        <main>
+            <!-- Main Control Section -->
+            <div class="bg-white p-6 rounded-lg shadow-md mb-8">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <!-- Factory Profile Section -->
+                    <div>
+                        <h2 class="text-xl font-semibold mb-4">1. เลือกโปรไฟล์โรงงาน</h2>
+                        <div class="flex items-center space-x-2">
+                            <select id="factory-select" class="block w-full bg-gray-100 border border-gray-200 text-gray-700 py-2 px-4 pr-8 rounded-lg leading-tight focus:outline-none focus:bg-white focus:border-gray-500">
+                                <!-- Options will be populated by JS -->
+                            </select>
+                            <button id="manage-factories-btn" class="bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-2 px-4 rounded-lg">
+                                จัดการ
+                            </button>
+                        </div>
+                    </div>
+                    <!-- File Upload Section -->
+                    <div>
+                        <h2 class="text-xl font-semibold mb-4">2. อัปโหลดรูปภาพของคุณ</h2>
+                        <div id="file-upload-container" class="file-upload-container rounded-lg p-4 text-center cursor-pointer h-full flex items-center justify-center">
+                            <input type="file" id="file-input" multiple accept="image/*" class="hidden">
+                            <div id="upload-prompt">
+                                <p class="text-sm text-gray-600">
+                                    <span class="font-semibold text-blue-600">คลิกเพื่อเลือกไฟล์</span> หรือลากมาวาง
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div id="image-previews" class="mt-4 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4"></div>
+                
+                <div class="text-center mt-6 border-t pt-6">
+                     <h2 class="text-xl font-semibold mb-4">3. เริ่มประมวลผล</h2>
+                    <button id="process-btn" class="bg-blue-600 text-white font-bold py-3 px-8 rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors text-lg">
+                        เริ่มประมวลผล
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Loading Indicator -->
+            <div id="loading-indicator" class="hidden items-center justify-center my-8">
+                <svg class="animate-spin -ml-1 mr-3 h-8 w-8 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <span id="loading-text" class="text-lg text-gray-700">กำลังประมวลผลรูปภาพ...</span>
+            </div>
+
+            <!-- Results Section -->
+            <div id="results-section" class="bg-white p-6 rounded-lg shadow-md hidden">
+                <div class="flex flex-col md:flex-row justify-between items-center mb-4">
+                    <h2 class="text-xl font-semibold">4. ผลลัพธ์และตารางข้อมูล</h2>
+                    <div class="flex items-center space-x-2 mt-4 md:mt-0">
+                        <button id="copy-sheets-btn" class="bg-teal-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-teal-700 transition-colors text-sm">
+                           คัดลอกสำหรับ Sheets
+                        </button>
+                        <button id="export-btn" class="bg-green-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-green-700 transition-colors text-sm">
+                            Export เป็น CSV
+                        </button>
+                        <button id="print-btn" class="bg-gray-700 text-white font-bold py-2 px-4 rounded-lg hover:bg-gray-800 transition-colors text-sm">
+                            พิมพ์ตาราง
+                        </button>
+                    </div>
+                </div>
+                <p class="text-sm text-gray-500 mb-4">คุณสามารถคลิกที่ช่องในตารางเพื่อแก้ไขข้อมูลได้โดยตรง</p>
+                <div id="print-section" class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-100">
+                            <tr>
+                                <th scope="col" class="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wider">ชื่อโรงงาน</th>
+                                <th scope="col" class="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wider">วันที่เอกสาร</th>
+                                <th scope="col" class="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wider">เลขที่บิล</th>
+                                <th scope="col" class="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wider">รหัสสินค้า</th>
+                                <th scope="col" class="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wider">ชื่อสินค้า</th>
+                                <th scope="col" class="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wider">น้ำหนักรวม</th>
+                                <th scope="col" class="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wider">จำนวนเส้น</th>
+                                <th scope="col" class="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wider">ราคา/หน่วย</th>
+                                <th scope="col" class="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wider">ส่วนลด</th>
+                                <th scope="col" class="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wider">ยอดเงินรวม</th>
+                                <th scope="col" class="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wider"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="dataTable" class="bg-white divide-y divide-gray-200">
+                            <!-- Data rows will be inserted here -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Factory Management Modal -->
+    <div id="factory-modal" class="fixed inset-0 z-50 hidden items-center justify-center modal-backdrop">
+        <div class="bg-white rounded-lg shadow-xl w-full max-w-md m-4">
+            <div class="p-6 border-b">
+                <h3 class="text-xl font-semibold">จัดการรายชื่อโรงงาน</h3>
+            </div>
+            <div class="p-6">
+                <div class="flex space-x-2 mb-4">
+                    <input type="text" id="new-factory-name" class="block w-full border border-gray-300 rounded-lg px-3 py-2" placeholder="เพิ่มชื่อโรงงานใหม่...">
+                    <button id="add-factory-btn" class="bg-blue-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-blue-700">เพิ่ม</button>
+                </div>
+                <div id="factory-list" class="max-h-60 overflow-y-auto border rounded-lg p-2">
+                    <!-- Factory list will be populated by JS -->
+                </div>
+            </div>
+            <div class="p-4 bg-gray-50 text-right rounded-b-lg">
+                <button id="close-modal-btn" class="bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-2 px-4 rounded-lg">ปิด</button>
+            </div>
+        </div>
+    </div>
+    
+    <textarea id="clipboard-helper" class="absolute -left-full"></textarea>
+
+    <script>
+        // DOM Elements
+        const fileUploadContainer = document.getElementById('file-upload-container');
+        const fileInput = document.getElementById('file-input');
+        const uploadPrompt = document.getElementById('upload-prompt');
+        const imagePreviews = document.getElementById('image-previews');
+        const processBtn = document.getElementById('process-btn');
+        const loadingIndicator = document.getElementById('loading-indicator');
+        const loadingText = document.getElementById('loading-text');
+        const resultsSection = document.getElementById('results-section');
+        const dataTable = document.getElementById('dataTable');
+        const exportBtn = document.getElementById('export-btn');
+        const printBtn = document.getElementById('print-btn');
+        const copySheetsBtn = document.getElementById('copy-sheets-btn');
+        const clipboardHelper = document.getElementById('clipboard-helper');
+
+        // Factory Profile Elements
+        const factorySelect = document.getElementById('factory-select');
+        const manageFactoriesBtn = document.getElementById('manage-factories-btn');
+        const factoryModal = document.getElementById('factory-modal');
+        const closeModalBtn = document.getElementById('close-modal-btn');
+        const addFactoryBtn = document.getElementById('add-factory-btn');
+        const newFactoryNameInput = document.getElementById('new-factory-name');
+        const factoryListContainer = document.getElementById('factory-list');
+
+        let uploadedFiles = [];
+        let factories = [];
+
+        // --- Factory Profile Logic ---
+        function getFactories() {
+            const storedFactories = localStorage.getItem('invoiceFactories');
+            return storedFactories ? JSON.parse(storedFactories) : [];
+        }
+
+        function saveFactories(factoriesToSave) {
+            localStorage.setItem('invoiceFactories', JSON.stringify(factoriesToSave));
+        }
+
+        function populateFactoryDropdown() {
+            factorySelect.innerHTML = '<option value="general">ทั่วไป (ไม่มีโปรไฟล์)</option>';
+            factories.forEach(factory => {
+                const option = document.createElement('option');
+                option.value = factory;
+                option.textContent = factory;
+                factorySelect.appendChild(option);
+            });
+        }
+        
+        function renderFactoryList() {
+            factoryListContainer.innerHTML = '';
+            if (factories.length === 0) {
+                factoryListContainer.innerHTML = '<p class="text-gray-500 text-center">ไม่มีรายชื่อโรงงาน</p>';
+                return;
+            }
+            factories.forEach(factory => {
+                const div = document.createElement('div');
+                div.classList.add('flex', 'justify-between', 'items-center', 'p-2', 'hover:bg-gray-100', 'rounded');
+                div.innerHTML = `
+                    <span>${factory}</span>
+                    <button class="text-red-500 hover:text-red-700 font-bold" data-factory-name="${factory}">ลบ</button>
+                `;
+                factoryListContainer.appendChild(div);
+            });
+        }
+
+        manageFactoriesBtn.addEventListener('click', () => {
+             renderFactoryList();
+             factoryModal.style.display = 'flex';
+        });
+        closeModalBtn.addEventListener('click', () => factoryModal.style.display = 'none');
+        
+        addFactoryBtn.addEventListener('click', () => {
+            const newName = newFactoryNameInput.value.trim();
+            if (newName && !factories.includes(newName)) {
+                factories.push(newName);
+                saveFactories(factories);
+                populateFactoryDropdown();
+                renderFactoryList();
+                newFactoryNameInput.value = '';
+            }
+        });
+
+        factoryListContainer.addEventListener('click', (e) => {
+            if (e.target.tagName === 'BUTTON') {
+                const factoryNameToDelete = e.target.dataset.factoryName;
+                factories = factories.filter(f => f !== factoryNameToDelete);
+                saveFactories(factories);
+                populateFactoryDropdown();
+                renderFactoryList();
+            }
+        });
+
+
+        // --- File Upload Logic ---
+        fileUploadContainer.addEventListener('click', () => fileInput.click());
+        fileUploadContainer.addEventListener('dragover', (e) => { e.preventDefault(); e.stopPropagation(); fileUploadContainer.classList.add('drag-over'); });
+        fileUploadContainer.addEventListener('dragleave', (e) => { e.preventDefault(); e.stopPropagation(); fileUploadContainer.classList.remove('drag-over'); });
+        fileUploadContainer.addEventListener('drop', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            fileUploadContainer.classList.remove('drag-over');
+            handleFiles(e.dataTransfer.files);
+        });
+        fileInput.addEventListener('change', (e) => handleFiles(e.target.files));
+
+        function handleFiles(files) {
+            uploadPrompt.classList.add('hidden');
+            for (const file of files) {
+                if (file.type.startsWith('image/')) {
+                    uploadedFiles.push(file);
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        const preview = document.createElement('div');
+                        preview.classList.add('relative', 'group', 'w-full', 'h-24');
+                        preview.innerHTML = `<img src="${e.target.result}" class="w-full h-full object-cover rounded-md">`;
+                        imagePreviews.appendChild(preview);
+                    };
+                    reader.readAsDataURL(file);
+                }
+            }
+            updateProcessButtonState();
+        }
+        
+        function updateProcessButtonState() {
+            processBtn.disabled = uploadedFiles.length === 0;
+        }
+
+        // --- Image Processing with Gemini API ---
+        processBtn.addEventListener('click', async () => {
+            if (uploadedFiles.length === 0) return;
+
+            loadingIndicator.style.display = 'flex';
+            resultsSection.classList.remove('hidden');
+            dataTable.innerHTML = ''; 
+            const selectedFactory = factorySelect.value;
+
+            for (let i = 0; i < uploadedFiles.length; i++) {
+                const file = uploadedFiles[i];
+                loadingText.textContent = `กำลังประมวลผลรูปที่ ${i + 1} จาก ${uploadedFiles.length}: ${file.name}`;
+                try {
+                    const base64Data = await fileToBase64(file);
+                    const result = await callGeminiAPI(base64Data, file.type, selectedFactory);
+                    if (result) {
+                        displayDataInTable(result);
+                    }
+                } catch (error) {
+                    console.error('Error processing file:', file.name, error);
+                }
+            }
+            loadingIndicator.style.display = 'none';
+        });
+
+        function fileToBase64(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.readAsDataURL(file);
+                reader.onload = () => resolve(reader.result.split(',')[1]);
+                reader.onerror = error => reject(error);
+            });
+        }
+
+        async function callGeminiAPI(base64ImageData, mimeType, factoryName, retryCount = 0) {
+            const maxRetries = 3;
+            let prompt = `
+                จากรูปภาพใบเสร็จที่ให้มา, กรุณาดึงข้อมูลต่อไปนี้และตอบกลับเป็น JSON object เท่านั้น.
+                - factoryName: ชื่อโรงงานหรือบริษัท
+                - documentDate: วันที่ในเอกสาร
+                - billNumber: เลขที่บิลหรือใบกำกับภาษี
+                - items: array ของรายการสินค้า โดยแต่ละรายการมีข้อมูลดังนี้:
+                    - productCode: รหัสสินค้า
+                    - productName: ชื่อสินค้า
+                    - totalWeight: น้ำหนักรวม. **สำคัญ:** บางครั้งน้ำหนักจะอยู่ในช่องจำนวน แต่มีหน่วยเป็น "กก" หรือ "กิโลกรัม" ต่อท้าย ให้ดึงตัวเลขนั้นมาใส่ในช่องนี้. ดึงเฉพาะตัวเลข.
+                    - quantity: จำนวนเส้น/ชิ้น. **สำคัญ:** บางครั้งจำนวนจะอยู่ในช่องรายการสินค้า ให้ค้นหาจากรูปแบบต่อไปนี้: ตัวเลขในวงเล็บ () หรือ [], ตัวเลขตามหลังเครื่องหมาย =, หรือตัวเลขที่ตามด้วยคำย่อต่างๆ (เช่น 704ส, 48pc, 100เส้น, 50แผ่น). ให้ดึงเฉพาะตัวเลขมาใส่ในช่องนี้. ถ้าเจอ "กก" หรือ "กิโลกรัม" ให้ถือว่าเป็นน้ำหนักแทนและปล่อยช่องนี้ว่าง.
+                    - unitPrice: ราคาต่อหน่วย - ดึงเฉพาะตัวเลข ไม่ต้องมีสัญลักษณ์สกุลเงิน
+                    - discount: ส่วนลด (ถ้ามี) - ดึงเฉพาะตัวเลข ถ้าไม่มีให้เป็นค่าว่าง ("")
+                    - totalAmount: ยอดเงินรวมของรายการนั้น - ดึงเฉพาะตัวเลข ไม่ต้องมีสัญลักษณ์สกุลเงิน
+                
+                สำหรับข้อมูลที่ไม่ใช่ตัวเลข หากไม่พบ ให้ใช้ค่าเป็น "N/A".
+                ตรวจสอบให้แน่ใจว่าผลลัพธ์เป็น JSON ที่ถูกต้องสมบูรณ์
+            `;
+
+            if (factoryName !== 'general') {
+                prompt = `นี่คือเอกสารจากโรงงานชื่อ "${factoryName}". โปรดพิจารณาชื่อนี้เป็นคำใบ้ในการหาข้อมูล.\n\n` + prompt;
+            }
+
+            const payload = {
+                contents: [{ parts: [{ text: prompt }, { inlineData: { mimeType: mimeType, data: base64ImageData } }] }],
+            };
+
+            const apiKey = ""; 
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
+
+            try {
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                const result = await response.json();
+                
+                if (result.candidates?.[0]?.content?.parts?.[0]?.text) {
+                    let jsonText = result.candidates[0].content.parts[0].text;
+                    jsonText = jsonText.replace(/^```(json)?\s*/, '').replace(/```\s*$/, '');
+                    try {
+                        return JSON.parse(jsonText);
+                    } catch (parseError) {
+                        console.error("Failed to parse JSON:", parseError, "Raw text:", jsonText);
+                        throw new Error("Failed to parse JSON response.");
+                    }
+                } else {
+                    throw new Error("Invalid API response structure");
+                }
+            } catch (error) {
+                console.error("API call failed:", error);
+                if (retryCount < maxRetries) {
+                    const delay = Math.pow(2, retryCount) * 1000;
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                    return callGeminiAPI(base64ImageData, mimeType, factoryName, retryCount + 1);
+                }
+                return null;
+            }
+        }
+
+        function displayDataInTable(data) {
+            const { items } = data;
+            const selectedFactory = factorySelect.value !== 'general' ? factorySelect.value : (data.factoryName || 'N/A');
+            
+            if (!items || items.length === 0) {
+                const row = createRow({
+                    factoryName: selectedFactory, 
+                    documentDate: data.documentDate || 'N/A', 
+                    billNumber: data.billNumber || 'N/A',
+                    productCode: 'N/A', productName: 'N/A', totalWeight: '',
+                    quantity: '', unitPrice: '', discount: '', totalAmount: ''
+                });
+                dataTable.appendChild(row);
+                return;
+            }
+
+            items.forEach((item, index) => {
+                const rowData = {
+                    factoryName: index === 0 ? selectedFactory : '',
+                    documentDate: index === 0 ? data.documentDate || 'N/A' : '',
+                    billNumber: index === 0 ? data.billNumber || 'N/A' : '',
+                    productCode: item.productCode || 'N/A',
+                    productName: item.productName || 'N/A',
+                    totalWeight: item.totalWeight || '',
+                    quantity: item.quantity || '',
+                    unitPrice: item.unitPrice || '',
+                    discount: item.discount || '',
+                    totalAmount: item.totalAmount || ''
+                };
+                const row = createRow(rowData);
+                dataTable.appendChild(row);
+            });
+        }
+
+        function createRow(rowData) {
+            const row = document.createElement('tr');
+            row.classList.add('hover:bg-gray-50');
+            const fields = ['factoryName', 'documentDate', 'billNumber', 'productCode', 'productName', 'totalWeight', 'quantity', 'unitPrice', 'discount', 'totalAmount'];
+            
+            fields.forEach(field => {
+                const cell = document.createElement('td');
+                cell.textContent = rowData[field];
+                cell.setAttribute('contenteditable', 'true');
+                cell.classList.add('px-4', 'py-2', 'text-sm', 'text-gray-700');
+                row.appendChild(cell);
+            });
+
+            const deleteCell = document.createElement('td');
+            deleteCell.classList.add('px-4', 'py-2', 'text-center');
+            const deleteBtn = document.createElement('button');
+            deleteBtn.innerHTML = '&#x1F5D1;';
+            deleteBtn.classList.add('text-red-500', 'hover:text-red-700', 'text-lg');
+            deleteBtn.title = 'ลบแถวนี้';
+            deleteBtn.onclick = () => row.remove();
+            deleteCell.appendChild(deleteBtn);
+            row.appendChild(deleteCell);
+            return row;
+        }
+
+        // --- Export and Action Logic ---
+        copySheetsBtn.addEventListener('click', () => {
+            let tsvContent = '';
+            const rows = dataTable.querySelectorAll('tr');
+            rows.forEach(row => {
+                const cols = Array.from(row.querySelectorAll('td')).slice(0, -1);
+                tsvContent += cols.map(col => col.innerText).join('\t') + '\n';
+            });
+            
+            clipboardHelper.value = tsvContent;
+            clipboardHelper.select();
+            document.execCommand('copy');
+
+            const originalText = copySheetsBtn.textContent;
+            copySheetsBtn.textContent = 'คัดลอกแล้ว!';
+            copySheetsBtn.classList.add('bg-green-700');
+            setTimeout(() => {
+                copySheetsBtn.textContent = originalText;
+                copySheetsBtn.classList.remove('bg-green-700');
+            }, 2000);
+        });
+
+        exportBtn.addEventListener('click', () => {
+            const headers = ["ชื่อโรงงาน", "วันที่เอกสาร", "เลขที่บิล", "รหัสสินค้า", "ชื่อสินค้า", "น้ำหนักรวม", "จำนวนเส้น", "ราคา/หน่วย", "ส่วนลด", "ยอดเงินรวม"];
+            let csvRows = [headers.join(',')];
+            const rows = dataTable.querySelectorAll('tr');
+            rows.forEach(row => {
+                const cols = Array.from(row.querySelectorAll('td')).slice(0, -1);
+                if (cols.length > 0) {
+                    const rowData = cols.map(col => `"${col.innerText.replace(/"/g, '""')}"`);
+                    csvRows.push(rowData.join(','));
+                }
+            });
+
+            const csvString = csvRows.join('\r\n');
+            const bom = "\uFEFF";
+            const blob = new Blob([bom + csvString], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement("a");
+            const url = URL.createObjectURL(blob);
+            link.setAttribute("href", url);
+            link.setAttribute("download", "exported_data.csv");
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        });
+
+        printBtn.addEventListener('click', () => window.print());
+        
+        // --- Initial Load ---
+        function initializeApp() {
+            factories = getFactories();
+            populateFactoryDropdown();
+            updateProcessButtonState();
+        }
+
+        initializeApp();
+
+    </script>
+
+</body>
+</html>
